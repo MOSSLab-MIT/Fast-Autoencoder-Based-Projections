@@ -956,6 +956,9 @@ def main():
     parser.add_argument("--plot_dir", default="sampling_plots")
     parser.add_argument("--penalty_nn_only", action="store_true",
                         help="Run only the penalty_nn baseline (no autoencoder models needed)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Exact model name (e.g. phase2_two_moons_capacity_W64_D4_1.5_1_1.5_0.03_0.5) "
+                             "to test directly, bypassing the lambda grid search")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -982,6 +985,42 @@ def main():
 
     results = []
     two_moons_oracle = data_generation.build_two_moons_oracle()
+    
+    if args.model:
+        model_name = args.model.replace(".pt", "")
+        model_file = f"{model_name}.pt"
+        model_path = os.path.join(args.models_dir, model_file)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        all_shapes = shapes_2d + shapes_multidim
+        shape, exp_type, config, _ = parse_phase2_filename(model_file, all_shapes)
+        shapes_to_run = [shape]
+        exp_types_to_run = [exp_type]
+        args.config = [config]
+
+        run_tag = f"model-{model_name}"
+        output_path = args.output_csv
+        if args.output_csv == "optimal_ablation_params.csv":
+            base, ext = os.path.splitext(output_path)
+            output_path = f"{base}_{run_tag}{ext or '.csv'}"
+        with open(output_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([model_file, "manual"])
+        print(f"Using specified model: {model_file}")
+        print(f"shape={shape}, exp_type={exp_type}, config={config}")
+        print(f"Wrote {output_path}")
+
+        if not args.skip_experiments:
+            run_optimal_ablation_experiments(
+                csv_path=output_path,
+                models_dir=args.models_dir,
+                results_dir=args.results_dir,
+                shapes_filter=shapes_to_run,
+                exp_types_filter=exp_types_to_run,
+                configs_filter=args.config,
+                penalty_nn_only=False,
+            )
+        return
 
     run_tag = build_run_tag(shapes_to_run, exp_types_to_run, args.config)
     output_path = args.output_csv
