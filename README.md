@@ -1,9 +1,9 @@
 # Improving Feasibility via Fast Autoencoder-Based Projections
 
-This repository is by 
-[Maria Chzhen](https://www.linkedin.com/in/mariachzhen/) and 
+This repository is by
+[Maria Chzhen](https://www.linkedin.com/in/mariachzhen/) and
 [Priya L. Donti](https://www.priyadonti.com)
- and contains source code to reproduce the experiments in our paper 
+ and contains source code to reproduce the experiments in our paper
  ["Improving Feasibility via Fast Autoencoder-Based Projections"](https://openreview.net/pdf?id=dVlkUtsyg7).
 
 ## Abstract
@@ -28,6 +28,13 @@ If you find this repository helpful in your publications, please consider citing
 ## Installation
 ```bash
 pip install -r requirements.txt
+```
+
+For safe RL experiments, also install [SafePO](https://github.com/PKU-Alignment/Safe-Policy-Optimization) and [Safety-Gymnasium](https://github.com/PKU-Alignment/safety-gymnasium):
+```bash
+pip install safety-gymnasium
+git clone https://github.com/PKU-Alignment/Safe-Policy-Optimization.git
+cd Safe-Policy-Optimization && pip install -e . && cd ..
 ```
 
 ## Usage
@@ -67,10 +74,10 @@ python training.py [--shape SHAPE | --shapes_2d | --shapes_multidim]
 | `--lambda_geom` | `[0.025]` |
 | `--lambda_hinge` | `[0.5, 1.0]` |
 
-Output files:
+Output files are saved to `ablations_trained_models/`:
 ```
 phase1_{shape}_{exp_type}_{config}.pt
-phase2_{shape}_{exp_type}_{config}_{lambda_recon}_{lambda_feas}_{lambda_latent}_{lambda_geom}_{lambda_hinge}.pt
+phase2_{shape}_{exp_type}_{config}_{lambdas...}.pt
 ```
 
 Examples:
@@ -85,7 +92,8 @@ python training.py --shape two_moons --exp_type capacity
 python training.py --shapes_multidim --exp_type dim --config 3D 5D
 
 # Quick test with overridden lambda grid
-python training.py --shape blob_with_bite --exp_type cov --lambda_recon 1.5 --lambda_feas 1.0 --lambda_latent 1.0 --lambda_hinge 0.5
+python training.py --shape blob_with_bite --exp_type cov \
+    --lambda_recon 1.5 --lambda_feas 1.0 --lambda_latent 1.0 --lambda_hinge 0.5
 ```
 
 #### Testing (`testing.py`)
@@ -101,8 +109,8 @@ python testing.py [--shape SHAPE | --shapes_2d | --shapes_multidim]
 
 Runs two sequential phases by default:
 
-- **Phase 1 – Latent evaluation:** Samples from the latent ball for each trained model, evaluates feasibility, selects the best model per shape/exp_type/config, and writes results to a CSV (e.g. `optimal_ablation_params_all.csv`).
-- **Phase 2 – Experiments:** Benchmarks FAB end-to-end, FAB post-hoc projection, and a penalty-NN baseline across QP, LP, and distance-minimization objectives. Results saved to `results/` as `.txt` and `.pkl`.
+- **Phase 1 – Latent evaluation:** Samples from the latent ball for each trained model, evaluates feasibility, selects the best model per shape/exp_type/config, and writes results to a CSV.
+- **Phase 2 – Experiments:** Benchmarks FAB end-to-end, FAB post-hoc projection, and a penalty-NN baseline across QP, LP, and distance-minimization objectives. Results saved to `results/`.
 
 Shape/experiment/config flags are identical to `training.py`.
 
@@ -111,15 +119,10 @@ Shape/experiment/config flags are identical to `training.py`.
 | `--models_dir DIR` | `ablations_trained_models` | Directory with trained `.pt` files |
 | `--results_dir DIR` | `results` | Output directory for experiment results |
 | `--output_csv FILE` | auto-named from run tag | Path for best-model CSV |
-| `--n_latent_samples N` | `500` | Latent samples per model for feasibility eval |
-| `--latent_radius FLOAT` | `0.5` | Radius of the latent ball |
-| `--seed INT` | `42` | Global random seed |
-| `--skip_latent_eval` | — | Skip Phase 1; use an existing CSV for experiments |
+| `--skip_latent_eval` | — | Skip Phase 1; use an existing CSV |
 | `--skip_experiments` | — | Run Phase 1 only |
-| `--penalty_nn_only` | — | Run penalty-NN baseline only; no AE models required |
+| `--penalty_nn_only` | — | Penalty-NN baseline only; no AE models required |
 | `--plot_sampling` | — | Save latent-vs-decoded feasibility plots (2D only) |
-| `--plot_dir DIR` | `sampling_plots` | Output directory for sampling plots |
-| `--plot_show` | — | Display plots interactively in addition to saving |
 
 Examples:
 ```bash
@@ -135,22 +138,73 @@ python testing.py --shape two_moons --exp_type capacity --skip_experiments --plo
 
 #### Baselines (`baselines.py`)
 
-`baselines.py` benchmarks classical constrained optimization methods against FAB. It runs each method across QP, LP, and distance-minimization objectives, reporting feasibility rate, solve time, and optimality gap.
-
-**Supported methods:** `projected_gradient`, `penalty_method`, `augmented_lagrangian`, `interior_point`
-
-**Supported objectives:** `qp`, `lp`, `distance`
-
-To configure, set `VALID_CONSTRAINTS` and `VALID_METHODS` at the top of the file, then run:
+Benchmarks classical constrained-optimization methods (`projected_gradient`, `penalty_method`, `augmented_lagrangian`, `interior_point`) across QP, LP, and distance objectives. Configure `VALID_CONSTRAINTS` and `VALID_METHODS` at the top of the file, then run:
 ```bash
 python baselines.py
 ```
 
-`VALID_CONSTRAINTS` should contain shape names whose feasibility check is implemented in `data_generation.py`. `VALID_METHODS` can be any subset of the four supported methods.
+Remaining baselines
+- FSNet: https://github.com/MOSSLab-MIT/FSNet
+- Homeomorphic Projection: https://github.com/emliang/Homeomorphic-Projection
 
-
+---
 
 ### Safe Reinforcement Learning Problems
-Implementation borrowed from: [Safety-Gymnasium: A Unified Safe Reinforcement Learning Benchmark](https://github.com/PKU-Alignment/Safe-Policy-Optimization) (NeurIPS, 2023).
 
-More information coming soon!
+The safe RL pipeline trains a state-conditioned autoencoder on offline (observation, action) data, then attaches it to a PPO policy to project actions toward the feasible set at runtime. The RL scaffolding, as well as the paper baselines, use [SafePO](https://github.com/PKU-Alignment/Safe-Policy-Optimization) (NeurIPS 2023). 
+
+The pipeline has three steps:
+
+#### Step 1 — Collect an offline dataset (`safe_rl/collect_dataset.py`)
+
+Roll out a random policy to collect balanced feasible/infeasible (obs, action) pairs:
+```bash
+python safe_rl/collect_dataset.py \
+    --env SafetyPointGoal2-v0 \
+    --n_samples 1000000 \
+    --seed 0 \
+    --out safe_rl/dataset_pointgoal2.npz
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--env` | `SafetyPointGoal2-v0` | Safety-Gymnasium environment |
+| `--n_samples` | `1000000` | Total (obs, action) pairs |
+| `--balance-ratio` | `0.5` | Fraction of feasible samples |
+| `--use-reservoir` | — | Memory-efficient reservoir sampling |
+| `--out` | `dataset_pointgoal2.npz` | Output `.npz` path |
+
+#### Step 2 — Train the conditional autoencoder (`training.py`)
+
+Train using `--shape safety_gym`. The conditional AE encodes actions conditioned on observations:
+```bash
+python training.py \
+    --shape safety_gym \
+    --dataset_path safe_rl/dataset_pointgoal2.npz \
+    --state_dim 60 \
+    --exp_type dim --config 2D \
+    --lambda_recon 1.5 --lambda_feas 1.0 --lambda_latent 1.0 \
+    --lambda_geom 0.025 --lambda_hinge 0.5
+```
+
+> [!NOTE]
+> `--state_dim` is the observation dimension of your environment (e.g., 60 for SafetyPointGoal). If the `.npz` file contains an `obs_dim` key it will be auto-detected.
+
+#### Step 3 — Train PPO with the autoencoder (`safe_rl/ppo_ae.py`)
+
+Example usage:
+```bash
+python safe_rl/ppo_ae.py \
+    --task SafetyPointGoal1-v0 \
+    --ae_mode e2e \
+    --autoencoder_path ablations_trained_models/phase2_safety_gym_dim_2D_1.5_1_1_0.025_0.5.pt \
+    --seed 0
+
+# Standard PPO baseline (no AE)
+python safe_rl/ppo_ae.py \
+    --task SafetyPointGoal1-v0 \
+    --ae_mode none \
+    --seed 0
+```
+
+Additional AE flags: `--ae_latent_dim`, `--ae_hidden_dim`, `--ae_num_decoders` (must match the architecture of the checkpoint). Logs and checkpoints are written to `runs/`.

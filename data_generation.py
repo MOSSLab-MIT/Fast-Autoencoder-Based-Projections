@@ -44,7 +44,7 @@ def generate_nonconvex_data(shape_name, n_samples=10000):
 # Safety Gym data
 def safety_gym_data(
     n_samples=10000,
-    dataset_path="data/dataset_pointgoal2.npz",
+    dataset_path="safe_rl/dataset_pointgoal2.npz", # change if path different
     balance=True,
     random_state=42
 ):
